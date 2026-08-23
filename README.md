@@ -1,7 +1,7 @@
 # Discord Bot
 
 Bot Discord xây dựng bằng discord.js, tự động gửi welcome card khi có thành viên mới tham gia server.
-Đây chỉ là project học hỏi nên có thể có lỗi.
+Đây chỉ là project học tập nên có thể có lỗi.
 
 ## Tính năng
 
