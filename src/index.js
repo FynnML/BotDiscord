@@ -75,4 +75,4 @@ process.once("SIGINT", () => {
   process.exit(0);
 });
 
-client.login(process.env.TOKEN);
+client.login(config.env.token);
