@@ -1,10 +1,15 @@
 // events/guildMemberAdd.js
 const { EmbedBuilder, AttachmentBuilder } = require("discord.js");
-const path = require("path");
-const fs = require("fs");
 const logger = require("../utils/logger.js");
 const config = require("../config");
 const { createWelcomeCard } = require("../utils/Canvas");
+
+/**
+ * Danh sách các quyền bắt buộc bot cần có trong kênh chào mừng:
+ * - ViewChannel, SendMessages, AttachFiles: Dành cho luồng chính (gửi ảnh Canvas)
+ * - EmbedLinks: Dành cho luồng dự phòng (gửi Embed text)
+ */
+const REQUIRED_PERMISSIONS = ["ViewChannel", "SendMessages", "AttachFiles", "EmbedLinks"];
 
 /**
  * Lấy kênh welcome từ cache hoặc fetch từ API
@@ -22,47 +27,39 @@ async function getWelcomeChannel(guild, channelId) {
 }
 
 /**
- * Kiểm tra xem bot có đủ quyền trong kênh không
+ * Kiểm tra các quyền còn thiếu của bot trong kênh chào mừng
+ * @param {import("discord.js").GuildChannel} channel
+ * @param {import("discord.js").Guild} guild
+ * @returns {string[]} Danh sách tên các quyền bị thiếu
  */
-function hasRequiredPermissions(channel, guild) {
+function getMissingPermissions(channel, guild) {
   const permissions = channel.permissionsFor(guild.members.me);
-  // Bot cần có đủ cả 3 quyền này
-  return permissions?.has(["ViewChannel", "SendMessages", "AttachFiles"]);
+  if (!permissions) {
+    return REQUIRED_PERMISSIONS;
+  }
+  return REQUIRED_PERMISSIONS.filter((perm) => !permissions.has(perm));
 }
 
 /**
- * Tạo nội dung tin nhắn chào mừng (Chỉ ảnh, nếu lỗi thì dùng Embed)
+ * Tạo Embed chào mừng dự phòng dạng text (không đính kèm ảnh Canvas)
+ * @param {import("discord.js").GuildMember} member
+ * @returns {EmbedBuilder}
  */
-async function createWelcomeMessage(member) {
-  try {
-    // Cố gắng tạo thẻ chào mừng bằng Canvas
-    const cardBuffer = await createWelcomeCard(member);
-    const attachment = new AttachmentBuilder(cardBuffer, { name: "welcome_card.png" });
-    
-    // Thành công: Chỉ gửi hình ảnh
-    return { files: [attachment] };
-  } catch (error) {
-    logger.warn(`Không thể tạo ảnh chào mừng bằng Canvas: ${error.message}. Đang dùng Embed dự phòng.`);
-    
-    // Thất bại (Fallback): Gửi Embed dạng text như thiết kế cũ
-    const embed = new EmbedBuilder()
-      .setColor(config.colors.primary)
-      .setTitle("🎉 Chào mừng thành viên mới!")
-      .setDescription(`Xin chào ${member}, chúc bạn có khoảng thời gian vui vẻ tại **${member.guild.name}**!`)
-      .setThumbnail(member.user.displayAvatarURL({ extension: "png", size: 1024 }))
-      .addFields(
-        { name: "👤 Member", value: member.user.tag, inline: true },
-        { name: "👥 Members", value: `${member.guild.memberCount}`, inline: true }
-      )
-      .setImage("attachment://welcome_bg.png")
-      .setFooter({
-        text: `Chúc ${member.user.tag} có trải nghiệm tuyệt vời!`,
-        iconURL: member.guild.iconURL(),
-      })
-      .setTimestamp();
-
-    return { embeds: [embed] };
-  }
+function buildFallbackEmbed(member) {
+  return new EmbedBuilder()
+    .setColor(config.colors.primary)
+    .setTitle("🎉 Chào mừng thành viên mới!")
+    .setDescription(`Xin chào ${member}, chúc bạn có khoảng thời gian vui vẻ tại **${member.guild.name}**!`)
+    .setThumbnail(member.user.displayAvatarURL({ extension: "png", size: 1024 }))
+    .addFields(
+      { name: "👤 Member", value: member.user.tag, inline: true },
+      { name: "👥 Members", value: `${member.guild.memberCount}`, inline: true }
+    )
+    .setFooter({
+      text: `Chúc ${member.user.tag} có trải nghiệm tuyệt vời!`,
+      iconURL: member.guild.iconURL(),
+    })
+    .setTimestamp();
 }
 
 module.exports = {
@@ -80,14 +77,41 @@ module.exports = {
         return logger.warn(`Không tìm thấy welcome channel (ID: ${channelId}) tại ${member.guild.name}`);
       }
 
-      if (!hasRequiredPermissions(channel, member.guild)) {
-        return logger.warn(`Bot thiếu quyền gửi tin nhắn/đính kèm/xem kênh tại ${channel.name}`);
+      const missingPermissions = getMissingPermissions(channel, member.guild);
+      if (missingPermissions.length > 0) {
+        return logger.warn(
+          `Bot thiếu quyền tại kênh ${channel.name} (${channel.id}): ${missingPermissions.join(", ")}`
+        );
       }
 
-      const messagePayload = await createWelcomeMessage(member);
-      await channel.send(messagePayload);
+      // Primary path: Tạo và gửi ảnh Canvas welcome card
+      let sentPrimary = false;
+      try {
+        const cardBuffer = await createWelcomeCard(member);
+        const attachment = new AttachmentBuilder(cardBuffer, { name: "welcome_card.png" });
+        await channel.send({ files: [attachment] });
+        sentPrimary = true;
+        logger.success(`Đã chào mừng ${member.user.tag} tại ${member.guild.name}`);
+      } catch (primaryError) {
+        logger.warn(
+          `Không thể gửi thẻ chào mừng ảnh (${primaryError.message}). Đang chuyển sang gửi Embed dự phòng...`
+        );
+      }
 
-      logger.success(`Đã chào mừng ${member.user.tag} tại ${member.guild.name}`);
+      // Fallback path: Gửi Embed Text đúng 1 lần nếu luồng chính thất bại
+      if (!sentPrimary) {
+        try {
+          const fallbackEmbed = buildFallbackEmbed(member);
+          await channel.send({ embeds: [fallbackEmbed] });
+          logger.success(
+            `Đã chào mừng ${member.user.tag} tại ${member.guild.name} (bằng Embed dự phòng)`
+          );
+        } catch (fallbackError) {
+          logger.error(
+            `Cả phương thức chào mừng chính và dự phòng đều thất bại cho ${member.user.tag} tại ${member.guild.name}: ${fallbackError.message}`
+          );
+        }
+      }
     } catch (error) {
       logger.error(`Lỗi guildMemberAdd: ${error.message}`);
     }

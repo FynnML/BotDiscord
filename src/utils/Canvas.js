@@ -1,6 +1,53 @@
 // src/utils/Canvas.js
 const { createCanvas, loadImage } = require("canvas");
 const welcomeConfig = require("../config/welcome");
+const logger = require("./logger.js");
+
+// ==================== Caching & Concurrency ====================
+
+/**
+ * Cache chứa các Promise tải ảnh nền đã giải mã, tránh đọc đĩa và decode lặp lại
+ */
+const backgroundCache = new Map();
+
+async function getCachedBackgroundImage(imagePath) {
+    if (backgroundCache.has(imagePath)) {
+        return backgroundCache.get(imagePath);
+    }
+    const loadPromise = loadImage(imagePath).catch((err) => {
+        backgroundCache.delete(imagePath);
+        throw err;
+    });
+    backgroundCache.set(imagePath, loadPromise);
+    return loadPromise;
+}
+
+/**
+ * Giới hạn số lượng tác vụ vẽ Canvas tạo thẻ chào mừng chạy đồng thời (mặc định 2).
+ * Tránh quá tải CPU/RAM khi nhiều thành viên tham gia cùng lúc.
+ */
+const MAX_CONCURRENT_CARDS = 2;
+let activeCardGenerations = 0;
+const cardGenerationQueue = [];
+
+function acquireCardSlot() {
+    if (activeCardGenerations < MAX_CONCURRENT_CARDS) {
+        activeCardGenerations++;
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+        cardGenerationQueue.push(resolve);
+    });
+}
+
+function releaseCardSlot() {
+    activeCardGenerations--;
+    if (cardGenerationQueue.length > 0) {
+        const next = cardGenerationQueue.shift();
+        activeCardGenerations++;
+        next();
+    }
+}
 
 /**
  * Truncate text with ellipsis if it exceeds maxWidth.
@@ -59,21 +106,21 @@ function measureCapHeight(ctx, sampleText) {
 }
 
 /**
- * Tạo ảnh thẻ chào mừng cho thành viên mới
+ * Render thẻ chào mừng cho thành viên mới
  * @param {import("discord.js").GuildMember} member
  * @returns {Promise<Buffer>} Buffer của ảnh PNG
  */
-async function createWelcomeCard(member) {
+async function renderWelcomeCard(member) {
     const { canvas: cvs, background: bg, overlay, avatar: avt, shadow, text } = welcomeConfig;
     const canvas = createCanvas(cvs.width, cvs.height);
     const ctx = canvas.getContext("2d");
 
     // =========================
-    // Background
+    // Background (được cache trong bộ nhớ)
     // =========================
     const bgImages = bg.images || [bg.imagePath];
     const randomImagePath = bgImages[Math.floor(Math.random() * bgImages.length)];
-    const background = await loadImage(randomImagePath);
+    const background = await getCachedBackgroundImage(randomImagePath);
     ctx.drawImage(background, 0, 0, canvas.width, canvas.height);
 
     // =========================
@@ -92,14 +139,21 @@ async function createWelcomeCard(member) {
     ctx.fill();
 
     // =========================
-    // Avatar
+    // Avatar (tải có giới hạn timeout 7 giây)
     // =========================
     let avatarImage = null;
     try {
         const avatarURL = member.user.displayAvatarURL({ extension: "png", size: 256 });
-        avatarImage = await loadImage(avatarURL);
+        const response = await fetch(avatarURL, { signal: AbortSignal.timeout(7000) });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        avatarImage = await loadImage(Buffer.from(arrayBuffer));
     } catch (err) {
-        // Fallback handled below
+        logger.warn(
+            `Không thể tải avatar cho ${member.user?.tag || member.id}: ${err.message}. Sử dụng avatar dự phòng.`
+        );
     }
 
     const avatarRadius = avt.size / 2;
@@ -133,10 +187,11 @@ async function createWelcomeCard(member) {
         ctx.fillRect(avt.x, avt.y, avt.size, avt.size);
 
         ctx.fillStyle = "#ffffff";
-        ctx.font = `bold ${avt.size / 2}px Arial`;
+        ctx.font = `bold ${avt.size / 2}px 'DejaVu Sans', Arial, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(member.user.username.charAt(0).toUpperCase(), avatarCenterX, avatarCenterY);
+        const firstChar = Array.from(member.user?.username || "")[0] || "?";
+        ctx.fillText(firstChar, avatarCenterX, avatarCenterY);
     }
     ctx.restore();
 
@@ -157,8 +212,9 @@ async function createWelcomeCard(member) {
 
     // --- Username: thử thu nhỏ cỡ chữ trước (fitFontSize), chỉ truncate (...) ---
     // --- nếu đã chạm minSize mà vẫn tràn maxWidth ---
+    // Giữ nguyên chuỗi gốc, không gọi .toUpperCase() để tránh lệch độ dài/bề rộng Unicode
     const uCfg = text.username;
-    const usernameRaw = member.user.username.toUpperCase();
+    const usernameRaw = member.user?.username || "";
     fitFontSize(ctx, usernameRaw, uCfg.weight, uCfg.family, uCfg.maxWidth, uCfg.maxSize, uCfg.minSize);
     const usernameFont = ctx.font; // fitFontSize đã set sẵn font/cỡ chữ phù hợp
     let usernameDisplay = usernameRaw;
@@ -206,6 +262,21 @@ async function createWelcomeCard(member) {
     return canvas.toBuffer("image/png");
 }
 
+/**
+ * Tạo ảnh thẻ chào mừng cho thành viên mới (có giới hạn số lượng tác vụ đồng thời)
+ * @param {import("discord.js").GuildMember} member
+ * @returns {Promise<Buffer>}
+ */
+async function createWelcomeCard(member) {
+    await acquireCardSlot();
+    try {
+        return await renderWelcomeCard(member);
+    } finally {
+        releaseCardSlot();
+    }
+}
+
 module.exports = {
     createWelcomeCard,
+    backgroundCache,
 };

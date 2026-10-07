@@ -53,7 +53,7 @@ module.exports = {
     // Số càng nhỏ thì khối chữ càng lên cao.
     blockAnchorY: 165,
     welcome: {
-      font: "900 62px 'Arial Black', Impact, sans-serif",
+      font: "900 62px 'DejaVu Sans', 'Arial Black', Impact, 'Segoe UI', Arial, sans-serif",
       color: "#ffffff",
       align: "left",
       baseline: "alphabetic",
@@ -63,7 +63,7 @@ module.exports = {
       // Không còn 1 cỡ chữ cố định — tự thu nhỏ dần từ maxSize xuống minSize
       // cho tới khi vừa maxWidth, chỉ truncate (...) nếu chạm minSize mà vẫn tràn
       weight: "800",
-      family: "'Arial Black', Impact, sans-serif",
+      family: "'DejaVu Sans', 'Arial Black', Impact, 'Segoe UI', Arial, sans-serif",
       maxSize: 42,
       minSize: 24, // không nhỏ hơn cỡ chữ của dòng Joined At
       color: "#ffd98a", // vàng ấm, tách phân cấp rõ với WELCOME
@@ -73,7 +73,7 @@ module.exports = {
       maxWidth: 460,
     },
     joinTime: {
-      font: "600 24px Arial, sans-serif",
+      font: "600 24px 'DejaVu Sans', Arial, sans-serif",
       color: "rgba(255, 255, 255, 0.85)",
       align: "left",
       baseline: "top",
