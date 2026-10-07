@@ -1,5 +1,5 @@
-// commands/about.js
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+const { PERMISSIONS } = require("../config/permissions");
 const config = require("../config");
 
 /**
@@ -19,6 +19,11 @@ module.exports = {
     data: new SlashCommandBuilder()
         .setName("about")
         .setDescription("Hiển thị thông tin chi tiết về bot (phiên bản, uptime, ...)."),
+
+    permissions: {
+        user: [],
+        bot: [PERMISSIONS.SEND_MESSAGES, PERMISSIONS.EMBED_LINKS],
+    },
 
     meta: {
         category: "general",

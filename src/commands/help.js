@@ -1,11 +1,16 @@
-// commands/help.js
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
+const { PERMISSIONS } = require("../config/permissions");
 const config = require("../config");
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName("help")
         .setDescription("Hiển thị danh sách các lệnh hiện có của bot."),
+
+    permissions: {
+        user: [],
+        bot: [PERMISSIONS.SEND_MESSAGES, PERMISSIONS.EMBED_LINKS],
+    },
 
     meta: {
         category: "general",
@@ -21,7 +26,11 @@ module.exports = {
 
         // Chuyển Collection commands thành mảng và tạo chuỗi danh sách lệnh
         const commandList = Array.from(commands.values())
-            .map(command => { return `**/${command.data.name}** — ${command.data.description} +> Category: ${command.meta.category}` })
+            .map(command => {
+                const isRestricted = command.permissions?.user && command.permissions.user.length > 0;
+                const lockSuffix = isRestricted ? " 🔒" : "";
+                return `**/${command.data.name}**${lockSuffix} — ${command.data.description} +> Category: ${command.meta.category}`;
+            })
             .join("\n");
 
         const embed = new EmbedBuilder()

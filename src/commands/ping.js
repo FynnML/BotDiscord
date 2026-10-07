@@ -8,6 +8,11 @@ module.exports = {
         .setDescription("Kiểm tra bot có đang hoạt động không và xem độ trễ (latency).")
         .setDefaultMemberPermissions(PERMISSIONS.MANAGE_MESSAGES),
 
+    permissions: {
+        user: [PERMISSIONS.MANAGE_MESSAGES],
+        bot: [PERMISSIONS.SEND_MESSAGES],
+    },
+
     meta: {
         category: "utility",
         cooldown: 3,
