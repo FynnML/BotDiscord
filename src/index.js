@@ -20,6 +20,33 @@ const client = new Client({
 
 loadCommands(client);
 
+// ==================== Global Error Handlers ====================
+
+process.on("unhandledRejection", (reason) => {
+  logger.error(`Unhandled Rejection: ${reason?.stack ?? reason}`);
+});
+
+process.on("uncaughtException", async (error) => {
+  logger.error(`Uncaught Exception: ${error.stack ?? error.message}`);
+  try {
+    await logger.flush();
+  } finally {
+    process.exit(1);
+  }
+});
+
+// ==================== Graceful Shutdown ====================
+
+process.once("SIGINT", async () => {
+  logger.info("Đang tắt bot...");
+  client.destroy();
+  try {
+    await logger.flush();
+  } finally {
+    process.exit(0);
+  }
+});
+
 // ==================== Validation ====================
 
 const configErrors = validateConfig();
@@ -28,53 +55,39 @@ if (configErrors.length > 0) {
     logger.error(error);
   }
   logger.error("❌ Configuration không hợp lệ. Bot không thể khởi động.");
-  process.exit(1);
-}
+  logger.flush().finally(() => {
+    process.exit(1);
+  });
+} else {
+  // ==================== Load Events ====================
 
-// ==================== Global Error Handlers ====================
+  const eventsPath = path.join(__dirname, "events");
+  const eventFiles = fs
+    .readdirSync(eventsPath)
+    .filter((file) => file.endsWith(".js"));
 
-process.on("unhandledRejection", (reason) => {
-  logger.error(`Unhandled Rejection: ${reason?.stack ?? reason}`);
-});
+  for (const file of eventFiles) {
+    const event = require(path.join(eventsPath, file));
+    const bind = event.once ? client.once.bind(client) : client.on.bind(client);
 
-process.on("uncaughtException", (error) => {
-  logger.error(`Uncaught Exception: ${error.stack ?? error.message}`);
-  // Nên thoát để tránh trạng thái không xác định
-  process.exit(1);
-});
+    bind(event.name, async (...args) => {
+      try {
+        await event.execute(...args);
+      } catch (error) {
+        logger.error(
+          `Event ${event.name} error: ${error.stack ?? error.message}`
+        );
+      }
+    });
+  }
 
-// ==================== Load Events ====================
-
-const eventsPath = path.join(__dirname, "events");
-const eventFiles = fs
-  .readdirSync(eventsPath)
-  .filter((file) => file.endsWith(".js"));
-
-for (const file of eventFiles) {
-  const event = require(path.join(eventsPath, file));
-  const bind = event.once ? client.once.bind(client) : client.on.bind(client);
-
-  bind(event.name, async (...args) => {
+  client.login(config.env.token).catch(async (error) => {
+    logger.error(`Discord login failed: ${error.stack ?? error.message}`);
+    client.destroy();
     try {
-      await event.execute(...args);
-    } catch (error) {
-      logger.error(
-        `Event ${event.name} error: ${error.stack ?? error.message}`
-      );
+      await logger.flush();
+    } finally {
+      process.exit(1);
     }
   });
 }
-
-// ==================== Graceful Shutdown ====================
-
-process.once("SIGINT", () => {
-  logger.info("Đang tắt bot...");
-  client.destroy();
-  process.exit(0);
-});
-
-client.login(config.env.token).catch((error) => {
-  logger.error(`Discord login failed: ${error.stack ?? error.message}`);
-  client.destroy();
-  process.exit(1);
-});
