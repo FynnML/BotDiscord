@@ -1,5 +1,9 @@
 const config = require("./index");
 
+function isValidSnowflake(value) {
+    return typeof value === "string" && /^\d{17,20}$/.test(value.trim());
+}
+
 function validateConfig() {
     const errors = [];
 
@@ -7,8 +11,22 @@ function validateConfig() {
         errors.push("Thiếu DISCORD_TOKEN trong file .env");
     }
 
+    if (!config.env.clientId) {
+        errors.push("Thiếu CLIENT_ID trong file .env");
+    } else if (!isValidSnowflake(config.env.clientId)) {
+        errors.push("CLIENT_ID không hợp lệ: phải là Discord Snowflake ID");
+    }
+
+    if (!config.env.guildId) {
+        errors.push("Thiếu GUILD_ID trong file .env");
+    } else if (!isValidSnowflake(config.env.guildId)) {
+        errors.push("GUILD_ID không hợp lệ: phải là Discord Snowflake ID");
+    }
+
     if (!config.env.welcomeChannelId) {
         errors.push("Thiếu WELCOME_CHANNEL_ID trong file .env");
+    } else if (!isValidSnowflake(config.env.welcomeChannelId)) {
+        errors.push("WELCOME_CHANNEL_ID không hợp lệ: phải là Discord Snowflake ID");
     }
 
     // if (!config.welcome.background.imagePath || config.welcome.background.imagePath === "/path/to/welcome_bg.png") {
@@ -25,5 +43,6 @@ function validateConfig() {
 
     return errors;
 }
+
 
 module.exports = validateConfig;

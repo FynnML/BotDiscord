@@ -15,8 +15,6 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
   ],
 });
 
@@ -75,4 +73,8 @@ process.once("SIGINT", () => {
   process.exit(0);
 });
 
-client.login(config.env.token);
+client.login(config.env.token).catch((error) => {
+  logger.error(`Discord login failed: ${error.stack ?? error.message}`);
+  client.destroy();
+  process.exit(1);
+});
